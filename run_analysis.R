@@ -1,40 +1,75 @@
-# Read features and activity data
-features <- read.table("./UCI HAR Dataset/features.txt")
-activities <- read.table("./UCI HAR Dataset/activity_labels.txt")
+# Libraries
 
-# Read train data
-train <- read.table("./UCI HAR Dataset/train/X_train.txt") #features data
-colnames(train) <- features$V2 #descriptive column names for data (STEP 4)
-y_train <- read.table("./UCI HAR Dataset/train/y_train.txt") #activity labels
-train$activity <- y_train$V1
-subject_train <- read.table("./UCI HAR Dataset/train/subject_train.txt") #subjects
-train$subject <- factor(subject_train$V1)
+library(data.table)
+library(dplyr)
+
+# The data 
+
+features_path <- file.path("UCI HAR Dataset","features.txt")
+train_path <- file.path("UCI HAR Dataset","train","X_train.txt")
+test_path <- file.path("UCI HAR Dataset","test","X_test.txt")
+activity_labels_path <- file.path("UCI HAR Dataset","activity_labels.txt")
+train_label_path <- file.path("UCI HAR Dataset","train","y_train.txt")
+test_label_path <- file.path("UCI HAR Dataset","test","y_test.txt")
+train_subject_path <- file.path("UCI HAR Dataset","train","subject_train.txt")
+test_subject_path <- file.path("UCI HAR Dataset","test","subject_test.txt")
+
+features <- read.table(features_path,sep=" ")
+activity_labels <- read.table(activity_labels_path)
+train_data <- read.table(train_path)
+test_data <- read.table(test_path)
+train_label <- read.table(train_label_path)
+test_label <- read.table(test_label_path)
+train_subject <- read.table(train_subject_path)
+test_subject <- read.table(test_subject_path)
+
+# Merge the training and the test sets to get one data set
+
+dataset <- rbind(train_data,test_data)
+colNames <- features[[2]]
+names(dataset) <- colNames
 
 
-# Read test data
-test <- read.table("./UCI HAR Dataset/test/X_test.txt")
-colnames(test) <- features$V2
-y_test <- read.table("./UCI HAR Dataset/test/y_test.txt") 
-test$activity <- y_test$V1
-subject_test <- read.table("./UCI HAR Dataset/test/subject_test.txt")
-test$subject <- factor(subject_test$V1)
+# Extract the measurements on the mean and standard deviation for each measurement
 
-# Merge train and test sets (STEP 1)
-dataset <- rbind(test, train) 
+mean_and_std_index <- grep("(mean)|(std)",colNames)
+dataset <- dataset[mean_and_std_index]
 
-# Filter column names (STEP 2)
-column.names <- colnames(dataset)
-#get only columns for standard deviation and mean values, also saves activity and subject values 
-column.names.filtered <- grep("std\\(\\)|mean\\(\\)|activity|subject", column.names, value=TRUE)
-dataset.filtered <- dataset[, column.names.filtered] 
+# Use descriptive activity names to name the activities in the data set
 
-# Addi descriptive values for activity labels (STEP 3)
-dataset.filtered$activitylabel <- factor(dataset.filtered$activity, labels= c("WALKING", "WALKING_UPSTAIRS", "WALKING_DOWNSTAIRS", "SITTING", "STANDING", "LAYING"))
+activity_id <- rbind(train_label,test_label)
+activity_names <- merge(activity_id,activity_labels,by.x="V1",by.y="V1",sort=F)
+subject <- rbind(train_subject,test_subject)
 
-# Create a tidy dataset with mean values for each subject and activity
-features.colnames = grep("std\\(\\)|mean\\(\\)", column.names, value=TRUE)
-dataset.melt <-melt(dataset.filtered, id = c('activitylabel', 'subject'), measure.vars = features.colnames)
-dataset.tidy <- dcast(dataset.melt, activitylabel + subject ~ variable, mean)
+dataset$subject = subject
+dataset$activityName = activity_names$V2
 
-# Create a tidy dataset file  
-write.table(dataset.tidy, file = "tidydataset.txt", row.names = FALSE)
+# Label the data set with descriptive variable names
+colNames <- names(dataset)
+colNames <- gsub("^t","time",colNames)
+colNames <- gsub("^f","frequency",colNames)
+colNames <- gsub("[-|(|)]","",colNames)
+colNames <- sub("Acc","Accelerometer",colNames)
+colNames <- sub("Gryo","Gyroscope",colNames)
+colNames <- sub("Mag","Magnitude",colNames)
+colNames <- sub("BodyBody","Body",colNames)
+names(dataset)<-colNames
+
+# tidy data set with the average of each variable for each activity and each subject
+
+group_by_activityName_and_subject <- group_by(dataset,activityName,subject)
+average_tidy_dataset <- summarize_all(group_by_activityName_and_subject,"mean")
+write.table(average_tidy_dataset,"tidydataset.txt",row.names=F)
+
+# Create the CodeBook
+
+code_book_df<-data.frame(rbind(summary(average_tidy_dataset)))
+name_df<-data.frame(names(average_tidy_dataset))
+names(code_book_df)<-names(average_tidy_dataset)
+i=0
+for(col_id in seq(1,ncol(code_book_df))){
+  i=i+1
+  write.table(name_df[col_id,1],"CodeBook.txt",quote=F,append=T,col.names=F,row.names=paste(as.character(i)," : "))
+  write.table(code_book_df[,name_df[col_id,1]],"CodeBook.txt",quote=F,append=T,na="",col.names=F,row.names=rep("      ",6))
+  
+}
